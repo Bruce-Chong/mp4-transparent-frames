@@ -10,12 +10,43 @@ Modes:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 from PIL import Image
+
+
+def _prepare_windows_gpu_dlls() -> None:
+    """Let onnxruntime-gpu find CUDA/cuDNN from the toolkit and pip nvidia-* wheels."""
+    if sys.platform != "win32":
+        return
+    import site
+
+    candidates: list[Path] = []
+    cuda_path = os.environ.get("CUDA_PATH")
+    if cuda_path:
+        candidates.append(Path(cuda_path) / "bin")
+    for base in site.getsitepackages():
+        nvidia = Path(base) / "nvidia"
+        if not nvidia.is_dir():
+            continue
+        for sub in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
+            candidates.append(nvidia / sub / "bin")
+    seen: set[str] = set()
+    for directory in candidates:
+        if not directory.is_dir():
+            continue
+        key = str(directory.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        os.add_dll_directory(key)
+        path = os.environ.get("PATH", "")
+        if key not in path.split(os.pathsep):
+            os.environ["PATH"] = key + os.pathsep + path
 
 
 def parse_hex_color(value: str) -> tuple[int, int, int]:
@@ -102,6 +133,7 @@ def main() -> int:
 
     rembg_session = None
     if args.mode == "rembg":
+        _prepare_windows_gpu_dlls()
         from rembg import new_session, remove as rembg_remove
 
         rembg_session = new_session()
